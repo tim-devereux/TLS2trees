@@ -64,7 +64,7 @@ def SemanticSegmentation(params):
                                      num_workers=0)
 
     # initialise model
-    model = Net(num_classes=4).to(params.device)
+    model = Net(num_classes=2).to(params.device)
     model.load_state_dict(torch.load(params.model, map_location=params.device), strict=False)
     model.eval()
 
@@ -99,18 +99,18 @@ def SemanticSegmentation(params):
                                   radius=0.05).fit(classified_pc[:, :3])
     _, indices = neighbours.kneighbors(params.pc[['x', 'y', 'z']].values)
 
-    params.pc = params.pc.drop(columns=[c for c in params.pc.columns if c in ['label', 'pTerrain', 'pLeaf', 'pWood', 'pCWD']])
+    params.pc = params.pc.drop(columns=[c for c in params.pc.columns if c in ['label', 'pLeaf', 'pWood']])
 
-    labels = np.zeros((params.pc.shape[0], 4))
-    labels[:, :4] = np.median(classified_pc[indices][:, :, -4:], axis=1)
-    params.pc.loc[params.pc.index, 'label'] = np.argmax(labels[:, :4], axis=1)
+    labels = np.zeros((params.pc.shape[0], 2))
+    labels[:, :2] = np.median(classified_pc[indices][:, :, -2:], axis=1)
+    params.pc.loc[params.pc.index, 'label'] = np.argmax(labels[:, :2], axis=1)
     
     # attribute points as wood if any points have
     # a wood probability > params.is_wood (Morel et al. 2020)
-    is_wood = np.any(classified_pc[indices][:, :, -1] > params.is_wood, axis=1)
-    params.pc.loc[is_wood, 'label'] = 3
+    is_wood = np.any(classified_pc[indices][:, :, -2] > params.is_wood, axis=1)
+    params.pc.loc[is_wood, 'label'] = 2
 
-    probs = pd.DataFrame(index=params.pc.index, data=labels[:, :4], columns=['pTerrain', 'pLeaf', 'pCWD', 'pWood'])
+    probs = pd.DataFrame(index=params.pc.index, data=labels[:, :2], columns=['pLeaf', 'pWood'])
     params.pc = params.pc.join(probs)
     #save_file(os.path.join(params.odir, '{}.segmented.concat.{}'.format(params.filename[:-4], params.output_fmt)), 
     #          pd.concat([params.pc, probs]), 
@@ -123,12 +123,12 @@ def SemanticSegmentation(params):
     params.pc[['x', 'y', 'z']] += params.global_shift
 
     # calcualte height abouve ground and add ground normalised field
-    params = make_dtm(params)
-    params.pc.loc[params.pc.n_z <= params.ground_height_threshold, 'label'] = params.terrain_class
+    # params = make_dtm(params)
+    # params.pc.loc[params.pc.n_z <= params.ground_height_threshold, 'label'] = params.terrain_class
 
-    save_file(os.path.join(params.odir, '{}.segmented.{}'.format(params.filename[:-4], params.output_fmt)), 
+    save_file(os.path.join(params.odir, '{}.segmented.{}'.format(params.filename[:-2], params.output_fmt)), 
               params.pc.loc[~params.pc.buffer], 
-              additional_fields=['n_z', 'label', 'pTerrain', 'pLeaf', 'pCWD', 'pWood'] + params.additional_headers)
+              additional_fields=['label', 'pLeaf', 'pWood'] + params.additional_headers)
 
     params.sem_seg_total_time = time.time() - params.sem_seg_start_time
     if not params.keep_npy: [os.unlink(f) for f in test_dataset.filenames]

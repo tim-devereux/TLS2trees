@@ -45,7 +45,7 @@ class TrainingDataset:
 
         x, y = point_cloud[:, :3], point_cloud[:, 3]
         x, y = augmentations(x, y, self.params.min_sample_points)
-        if np.all(y != 0): y[y == 2] = 3  # if no ground is present, CWD is relabelled as stem.
+        # if np.all(y != 0): y[y == 2] = 3  # if no ground is present, CWD is relabelled as stem.
         x = torch.from_numpy(x.copy()).type(torch.float).to(self.params.device)
         y = torch.from_numpy(y.copy()).type(torch.long).to(self.params.device)
 
@@ -197,7 +197,7 @@ def run_training(params):
         )
 
     # create model instance, reload existing model and other stuff
-    model = Net(num_classes=4).to(params.device)
+    model = Net(num_classes=2).to(params.device)
     if os.path.isfile(params.model):
         if params.verbose: print("Loading existing model...")
         model.load_state_dict(torch.load(params.model), strict=False) # load exiting model
