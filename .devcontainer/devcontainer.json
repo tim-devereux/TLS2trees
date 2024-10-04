@@ -1,0 +1,18 @@
+{
+    "name": "TLS2trees Dev Container",
+    "build": {
+      "dockerfile": "Dockerfile",
+      "context": ".."
+    },
+    "extensions": [
+      "ms-python.python",
+      "ms-python.vscode-pylance"
+    ],
+    "settings": {
+      "python.defaultInterpreterPath": "/usr/local/bin/python",
+      "terminal.integrated.shell.linux": "/bin/bash"
+    },
+    "remoteUser": "vscode",
+    "postCreateCommand": "pip install -e ."
+  }
+  
