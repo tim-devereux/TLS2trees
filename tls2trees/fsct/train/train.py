@@ -10,9 +10,12 @@ from tqdm import tqdm
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-from fsct.tools import *
-from fsct.model import Net
-from fsct.train.other_parameters import other_parameters
+import sys
+sys.path.append('/home/uqtdeve1/code/TLS2trees')
+
+from tls2trees.tools import *
+from tls2trees.fsct.model import Net
+from tls2trees.fsct.train.other_parameters import other_parameters
 
 import torch
 import torch.nn as nn
@@ -167,7 +170,8 @@ def subsample_point_cloud(x, y, min_spacing, min_sample_points):
         return x[:, :3], x[:, 3]
     
 
-def run_training(params):
+# def run_training(params):
+    import pandas as pd  # Add import at the top
 
     if params.dl_cpu_cores == 0:
         print("Using default number of CPU cores (all of them).")
@@ -198,14 +202,20 @@ def run_training(params):
 
     # create model instance, reload existing model and other stuff
     model = Net(num_classes=4).to(params.device)
+    
+    # Initialize training history DataFrame regardless of whether loading existing model
+    if hasattr(params, 'train_history'):
+        train_history = params.train_history
+    else:
+        train_history = pd.DataFrame(columns=['epoch', 'epoch_loss', 'epoch_acc', 'val_epoch_loss', 'val_epoch_acc'])
+    
     if os.path.isfile(params.model):
         if params.verbose: print("Loading existing model...")
         model.load_state_dict(torch.load(params.model), strict=False) # load exiting model
         # also load training history csv
         if os.path.isfile(params.out + '.training_history.csv'):
-            params.train_history = pd.read_csv(f'{params.out}.training_history.csv')
-    else:
-        params.train_history = pd.DataFrame(columns=['epoch', 'epoch_loss', 'epoch_acc', 'val_epoch_loss', 'val_epoch_acc'])
+            train_history = pd.read_csv(f'{params.out}.training_history.csv')
+    
     model = model.to(params.device)
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=params.learning_rate)
     criterion = nn.CrossEntropyLoss()
@@ -256,8 +266,8 @@ def run_training(params):
         # write training history to file
         epoch_loss = running_loss / len(train_loader)
         epoch_acc = running_acc / len(train_loader)
-        params.train_history.loc[len(params.train_history)] = [epoch, epoch_loss, epoch_acc, val_epoch_loss, val_epoch_acc]
-        params.train_history.to_csv(f'{params.out}.training_history.csv', header=True, index=False)
+        train_history.loc[len(train_history)] = [epoch, epoch_loss, epoch_acc, val_epoch_loss, val_epoch_acc]
+        train_history.to_csv(f'{params.out}.training_history.csv', header=True, index=False)
         if params.verbose: print(f'Train epoch accuracy: {np.around(epoch_acc, 4)} Loss: {np.around(epoch_loss, 4)}\n')
 
         # VALIDATION
@@ -285,15 +295,172 @@ def run_training(params):
             # write validation history to file
             val_epoch_loss = running_loss / len(validation_loader)
             val_epoch_acc = running_acc / len(validation_loader)
-            params.train_history.loc[len(params.train_history)] = [epoch, epoch_loss, epoch_acc, val_epoch_loss, val_epoch_acc]
-            params.train_history.to_csv(f'{params.out}.training_history.csv', header=True, index=False)
+            train_history.loc[len(train_history)] = [epoch, epoch_loss, epoch_acc, val_epoch_loss, val_epoch_acc]
+            train_history.to_csv(f'{params.out}.training_history.csv', header=True, index=False)
             print(f'Validation epoch accuracy: {np.around(val_epoch_acc, 4)} Loss: {np.around(val_epoch_loss, 4)}')
             print("=====================================================================")
         
         # save model
         torch.save(model.state_dict(), os.path.join(params.model))
+        
+def run_training(params):
+    import pandas as pd  # Add import at the top
+    import os
+
+    if params.dl_cpu_cores == 0:
+        print("Using default number of CPU cores (all of them).")
+        params.dl_cpu_cores = os.cpu_count()
+    if params.verbose: print(f'Running deep learning using {params.dl_cpu_cores}/{os.cpu_count()} CPU cores')
+
+    train_dataset = TrainingDataset(params)
+    if len(train_dataset) == 0: raise Exception("No training samples found.")
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=params.train_batch_size,
+        shuffle=True,
+        num_workers=params.dl_cpu_cores,
+        drop_last=True,
+    )
+
+    if params.validate:
+        validation_dataset = ValidationDataset(params)
+
+        validation_loader = DataLoader(
+            validation_dataset,
+            batch_size=params.train_batch_size,
+            shuffle=True,
+            num_workers=params.dl_cpu_cores,
+            drop_last=True,
+        )
+
+    # create model instance, reload existing model and other stuff
+    model = Net(num_classes=4).to(params.device)
+    
+    # Initialize training history DataFrame regardless of whether loading existing model
+    if hasattr(params, 'train_history'):
+        train_history = params.train_history
+    else:
+        train_history = pd.DataFrame(columns=['epoch', 'epoch_loss', 'epoch_acc', 'val_epoch_loss', 'val_epoch_acc'])
+    
+    # Create models directory if it doesn't exist
+    models_dir = os.path.join(os.path.dirname(params.model), 'model_checkpoints')
+    os.makedirs(models_dir, exist_ok=True)
+    
+    # Determine starting epoch and best validation accuracy
+    start_epoch = 0
+    best_val_acc = 0
+    if os.path.isfile(params.model):
+        if params.verbose: print("Loading existing model...")
+        model.load_state_dict(torch.load(params.model), strict=False) # load existing model
+        # also load training history csv
+        if os.path.isfile(params.out + '.training_history.csv'):
+            train_history = pd.read_csv(f'{params.out}.training_history.csv')
+            if len(train_history) > 0:
+                start_epoch = int(train_history['epoch'].max() + 1)
+                if 'val_epoch_acc' in train_history.columns:
+                    best_val_acc = train_history['val_epoch_acc'].max()
+    
+    model = model.to(params.device)
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=params.learning_rate)
+    criterion = nn.CrossEntropyLoss()
+    val_epoch_acc, val_epoch_loss = 0, 0
+
+    # Configuration for checkpoints
+    checkpoint_frequency = 10  # Save every 10 epochs
+    
+    # train model 
+    for epoch in tqdm(range(start_epoch, start_epoch + params.iterations), total=params.iterations):
+        print("=====================================================================")
+        print("EPOCH ", epoch)
+        # TRAINING
+        model.train()
+        running_loss = 0.0
+        running_acc = 0
+        running_point_cloud_vis = np.zeros((0, 5))
+        for i, data in enumerate(train_loader):
+            data.pos = data.pos.to(params.device)
+
+            data.y = torch.unsqueeze(data.y, 0).to(params.device)
+            outputs = model(data)
+            loss = criterion(outputs, data.y)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            _, preds = torch.max(outputs, 1)
+            running_loss += loss.detach().item()
+            running_acc += torch.sum(preds == data.y.data).item() / data.y.shape[1]
+            running_point_cloud_vis = np.vstack(
+                (
+                    running_point_cloud_vis,
+                    np.hstack((data.pos.cpu() + np.array([i * 7, 0, 0]), data.y.cpu().T, preds.cpu().T)),
+                )
+            )
+            if i % 5 == 0:
+                print(
+                    "Train sample accuracy: ",
+                    np.around(running_acc / (i + 1), 4),
+                    ", Loss: ",
+                    np.around(running_loss / (i + 1), 4),
+                )
+
+                if params.generate_point_cloud_vis:
+                    running_point_cloud_vis = pd.DataFrame(running_point_cloud_vis, 
+                                                           columns=['x', 'y', 'z', 'label', 'pred'])
+                    ply_io.write_ply(f'{params.out}.{epoch}.ply', running_point_cloud_vis)
+
+        # write training history to file
+        epoch_loss = running_loss / len(train_loader)
+        epoch_acc = running_acc / len(train_loader)
+        train_history.loc[len(train_history)] = [epoch, epoch_loss, epoch_acc, val_epoch_loss, val_epoch_acc]
+        train_history.to_csv(f'{params.out}.training_history.csv', header=True, index=False)
+        if params.verbose: print(f'Train epoch accuracy: {np.around(epoch_acc, 4)} Loss: {np.around(epoch_loss, 4)}\n')
+
+        # VALIDATION
+        if params.validate:
+            if params.verbose: print("Validation")
+            model.eval()
+            running_loss = 0.0
+            running_acc = 0
+            i = 0
+            for data in validation_loader:
+                data.pos = data.pos.to(params.device)
+                data.y = torch.unsqueeze(data.y, 0).to(params.device)
+
+                outputs = model(data)
+                loss = criterion(outputs, data.y)
+
+                _, preds = torch.max(outputs, 1)
+                running_loss += loss.detach().item()
+                running_acc += torch.sum(preds == data.y.data).item() / data.y.shape[1]
+                if i % 5 == 0:
+                    print(f'Validation sample accuracy: {np.around(running_acc / (i + 1), 4)} Loss: {np.around(running_loss / (i + 1), 4)}')
+
+                i += 1
+
+            # write validation history to file
+            val_epoch_loss = running_loss / len(validation_loader)
+            val_epoch_acc = running_acc / len(validation_loader)
+            train_history.loc[len(train_history)] = [epoch, epoch_loss, epoch_acc, val_epoch_loss, val_epoch_acc]
+            train_history.to_csv(f'{params.out}.training_history.csv', header=True, index=False)
+            print(f'Validation epoch accuracy: {np.around(val_epoch_acc, 4)} Loss: {np.around(val_epoch_loss, 4)}')
+            print("=====================================================================")
             
-            
+            # Save best model if validation accuracy improves
+            if val_epoch_acc > best_val_acc:
+                best_val_acc = val_epoch_acc
+                torch.save(model.state_dict(), os.path.join(models_dir, 'best_model.pth'))
+                if params.verbose: print(f"Saved new best model with validation accuracy: {val_epoch_acc:.4f}")
+        
+        # Save periodic checkpoint
+        if epoch % checkpoint_frequency == 0:
+            torch.save(model.state_dict(), os.path.join(models_dir, f'checkpoint_epoch_{epoch:03d}.pth'))
+        
+        # Always save latest model
+        torch.save(model.state_dict(), os.path.join(params.model))
+
 def preprocessing_setup(dataset, out_dir, params):
 
     if params.verbose: print(f'preprocessing {dataset}') 
