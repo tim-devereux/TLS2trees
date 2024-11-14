@@ -23,7 +23,7 @@ import torch.optim as optim
 from torch_geometric.data import Dataset, DataLoader, Data
 from torch.multiprocessing import Pool, Process, set_start_method
 
-try: # required on JASMIN
+try:
      set_start_method('spawn')
 except RuntimeError:
     pass

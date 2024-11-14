@@ -3,12 +3,13 @@ module load cuda/11.8.0
 source activate tls2trees
 
 
-TEST_DATA="synth_trees"
+TEST_DATA="plot_tiles"
 
 # Default values
 INPUT_DIR="/scratch/project/veg3d/uqtdeve1/training_data/test_data/$TEST_DATA"
 
-SYNTH_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_checkpoints/best_model.pth"
+# SYNTH_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_checkpoints/best_model.pth"
+SYNTH_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_checkpoints/checkpoint_epoch_1940.pth"
 SYNTH_OUTPUT_PATH="/scratch/project/veg3d/uqtdeve1/training_data/test_data/$TEST_DATA/synth_results"
 BASE_OUTPUT_PATH="/scratch/project/veg3d/uqtdeve1/training_data/test_data/$TEST_DATA/base_results"
 BASE_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_base.pth"
@@ -44,19 +45,19 @@ for point_cloud in "$INPUT_DIR"/*.ply; do
             --verbose"
         eval $CMD
         
-        # Process with base model
-        echo "Running base model..."
-        CMD="python3 semantic.py \
-            --point-cloud '$point_cloud' \
-            --batch_size $BATCH_SIZE \
-            --num_procs $NUM_PROCS \
-            --model $BASE_MODEL_PATH \
-            --odir $base_subdir \
-            --verbose"
-        eval $CMD
+        # # Process with base model
+        # echo "Running base model..."
+        # CMD="python3 semantic.py \
+        #     --point-cloud '$point_cloud' \
+        #     --batch_size $BATCH_SIZE \
+        #     --num_procs $NUM_PROCS \
+        #     --model $BASE_MODEL_PATH \
+        #     --odir $base_subdir \
+        #     --verbose"
+        # eval $CMD
         
-        echo "Completed processing: $filename"
-        echo "----------------------------------------"
+        # echo "Completed processing: $filename"
+        # echo "----------------------------------------"
     fi
 done
 
