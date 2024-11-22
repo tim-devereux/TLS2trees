@@ -12,7 +12,6 @@ from fsct.other_parameters import other_parameters
 from tools import dict2class
 from fsct.preprocessing import Preprocessing
 from fsct.inference import SemanticSegmentation
-from fsct.segmentation import Segmentation
 
 if __name__ == '__main__':
     

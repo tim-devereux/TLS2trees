@@ -8,8 +8,10 @@ TEST_DATA="plot_tiles"
 # Default values
 INPUT_DIR="/scratch/project/veg3d/uqtdeve1/training_data/test_data/$TEST_DATA"
 
-# SYNTH_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_checkpoints/best_model.pth"
-SYNTH_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_checkpoints/checkpoint_epoch_1940.pth"
+# INPUT_DIR="/QRISdata/Q5866/uqtdeve1/Nextcloud/data/plot_recon/tumba"
+# BASE_OUTPUT_PATH="/QRISdata/Q5866/uqtdeve1/Nextcloud/data/plot_recon/tumba"
+
+SYNTH_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_checkpoints/checkpoint_epoch_200.pth"
 SYNTH_OUTPUT_PATH="/scratch/project/veg3d/uqtdeve1/training_data/test_data/$TEST_DATA/synth_results"
 BASE_OUTPUT_PATH="/scratch/project/veg3d/uqtdeve1/training_data/test_data/$TEST_DATA/base_results"
 BASE_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_base.pth"
@@ -45,7 +47,7 @@ for point_cloud in "$INPUT_DIR"/*.ply; do
             --verbose"
         eval $CMD
         
-        # # Process with base model
+        # Process with base model
         # echo "Running base model..."
         # CMD="python3 semantic.py \
         #     --point-cloud '$point_cloud' \
@@ -56,8 +58,8 @@ for point_cloud in "$INPUT_DIR"/*.ply; do
         #     --verbose"
         # eval $CMD
         
-        # echo "Completed processing: $filename"
-        # echo "----------------------------------------"
+        echo "Completed processing: $filename"
+        echo "----------------------------------------"
     fi
 done
 

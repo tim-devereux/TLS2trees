@@ -170,57 +170,88 @@ def load_file(filename, additional_headers=False, verbose=False):
         return pc, [c for c in pc.columns if c not in ['x', 'y', 'z']]
     else: return pc
 
-
+    
 def save_file(filename, pointcloud, additional_fields=[], verbose=False):
-
-#     if pointcloud.shape[0] == 0: 
-#         print(filename, 'is empty...')
-#     else:
+    """
+    Save point cloud data to various file formats (.las, .csv, .ply)
+    
+    Args:
+        filename (str): Output filename with extension
+        pointcloud (numpy.ndarray or pandas.DataFrame): Point cloud data
+        additional_fields (list): List of additional column names beyond x,y,z
+        verbose (bool): Whether to print status messages
+    """
+    if pointcloud.shape[0] == 0:
+        print(f"{filename} is empty...")
+        return
+        
     if verbose:
         print('Saving file:', filename)
         
+    # Ensure additional_fields only contains columns that exist in the data
+    if isinstance(pointcloud, pd.DataFrame):
+        available_cols = pointcloud.columns.tolist()
+        additional_fields = [col for col in additional_fields if col in available_cols]
+    
     cols = ['x', 'y', 'z'] + additional_fields
-
-    if filename.endswith('.las'):
-        las = laspy.create(file_version="1.4", point_format=7)
-        las.header.offsets = np.min(pointcloud[:, :3], axis=0)
-        las.header.scales = [0.001, 0.001, 0.001]
-
-        las.x = pointcloud[:, 0]
-        las.y = pointcloud[:, 1]
-        las.z = pointcloud[:, 2]
-
-        if len(additional_fields) != 0:
-            additional_fields = additional_fields[3:]
-
-            #  The reverse step below just puts the headings in the preferred order. They are backwards without it.
-            col_idxs = list(range(3, pointcloud.shape[1]))
-            additional_fields.reverse()
-
-            col_idxs.reverse()
-            for header, i in zip(additional_fields, col_idxs):
-                column = pointcloud[:, i]
-                if header in ['red', 'green', 'blue']:
-                    setattr(las, header, column)
-                else:
-                    las.add_extra_dim(laspy.ExtraBytesParams(name=header, type="f8"))
-                    setattr(las, header, column)
-        las.write(filename)
-        if not verbose:
-            print("Saved.")
-
-    elif filename.endswith('.csv'):
-        pd.DataFrame(pointcloud).to_csv(filename, header=None, index=None, sep=' ')
-        print("Saved to:", filename)
-
-    elif filename.endswith('.ply'):
-
-        if not isinstance(pointcloud, pd.DataFrame):
-            cols = list(set(cols))
-            pointcloud = pd.DataFrame(pointcloud, columns=cols)
-        
-        ply_io.write_ply(filename, pointcloud[cols])
-        print("Saved to:", filename)
+    
+    try:
+        if filename.endswith('.las'):
+            las = laspy.create(file_version="1.4", point_format=7)
+            las.header.offsets = np.min(pointcloud[:, :3], axis=0)
+            las.header.scales = [0.001, 0.001, 0.001]
+            
+            las.x = pointcloud[:, 0]
+            las.y = pointcloud[:, 1]
+            las.z = pointcloud[:, 2]
+            
+            if len(additional_fields) > 0:
+                # Skip x,y,z columns if they're in additional_fields
+                fields_to_add = [f for f in additional_fields if f not in ['x', 'y', 'z']]
+                
+                # The reverse step puts the headings in the preferred order
+                col_idxs = list(range(3, pointcloud.shape[1]))
+                fields_to_add.reverse()
+                col_idxs.reverse()
+                
+                for header, i in zip(fields_to_add, col_idxs):
+                    column = pointcloud[:, i]
+                    if header in ['red', 'green', 'blue']:
+                        setattr(las, header, column)
+                    else:
+                        las.add_extra_dim(laspy.ExtraBytesParams(name=header, type="f8"))
+                        setattr(las, header, column)
+                        
+            las.write(filename)
+            if verbose:
+                print("Saved.")
+                
+        elif filename.endswith('.csv'):
+            if isinstance(pointcloud, pd.DataFrame):
+                pointcloud.to_csv(filename, header=None, index=None, sep=' ')
+            else:
+                pd.DataFrame(pointcloud).to_csv(filename, header=None, index=None, sep=' ')
+            if verbose:
+                print("Saved to:", filename)
+                
+        elif filename.endswith('.ply'):
+            if not isinstance(pointcloud, pd.DataFrame):
+                # Convert to DataFrame with proper column names
+                cols = ['x', 'y', 'z'] + additional_fields
+                pointcloud = pd.DataFrame(pointcloud, columns=cols[:pointcloud.shape[1]])
+            
+            # Ensure we only try to save columns that exist
+            valid_cols = [col for col in cols if col in pointcloud.columns]
+            ply_io.write_ply(filename, pointcloud[valid_cols])
+            if verbose:
+                print("Saved to:", filename)
+                
+        else:
+            raise ValueError(f"Unsupported file format: {filename}")
+            
+    except Exception as e:
+        print(f"Error saving file {filename}: {str(e)}")
+        raise
 
 def make_dtm(params):
     

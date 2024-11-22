@@ -123,8 +123,8 @@ def SemanticSegmentation(params):
     params.pc[['x', 'y', 'z']] += params.global_shift
 
     # calcualte height abouve ground and add ground normalised field
-    params = make_dtm(params)
-    params.pc.loc[params.pc.n_z <= params.ground_height_threshold, 'label'] = params.terrain_class
+    # params = make_dtm(params)
+    # params.pc.loc[params.pc.n_z <= params.ground_height_threshold, 'label'] = params.terrain_class
 
     save_file(os.path.join(params.odir, '{}.segmented.{}'.format(params.filename[:-4], params.output_fmt)), 
               params.pc.loc[~params.pc.buffer], 
