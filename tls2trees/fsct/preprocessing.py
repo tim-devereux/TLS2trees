@@ -10,7 +10,6 @@ from tqdm import tqdm
 
 from tls2trees.tools import *
 
-
 def save_pts(params, I, bx, by, bz):
 
     pc = params.pc.loc[(params.pc.x.between(bx, bx + params.box_dims[0])) &
@@ -25,7 +24,7 @@ def save_pts(params, I, bx, by, bz):
         np.save(os.path.join(params.working_dir, f'{I:07}'), pc[['x', 'y', 'z']].values)
 
 def Preprocessing(params):
-    
+
     if params.verbose: print('\n----- preprocessing started -----')
     start_time = time.time()
     params.point_cloud = os.path.abspath(params.point_cloud)
@@ -47,11 +46,11 @@ def Preprocessing(params):
     params.plot_centre = compute_plot_centre(params.pc)
     params.global_shift = params.pc[['x', 'y', 'z']].mean()
     params.bbox = compute_bbox(params.pc[['x', 'y', 'z']])
-    
+
     # buffer 
     params.pc.loc[:, 'buffer'] = False # might not be needed
     if params.buffer > 0:
-        
+
         tile_index = pd.read_csv(params.tile_index, sep=' ', names=['fname', 'x', 'y'])
 
         # locate 8 nearest tiles
@@ -87,7 +86,7 @@ def Preprocessing(params):
     # apply global shift
     if params.verbose: print('global shift:', params.global_shift.values)
     params.pc[['x', 'y', 'z']] = params.pc[['x', 'y', 'z']] - params.global_shift
-	
+
     params.pc.reset_index(inplace=True)
     params.pc.loc[:, 'pid'] = params.pc.index
 
@@ -116,5 +115,5 @@ def Preprocessing(params):
         x.join()
 
     if params.verbose: print("Preprocessing done in {} seconds\n".format(time.time() - start_time))
-    
+
     return params

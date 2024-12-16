@@ -19,7 +19,7 @@ other_parameters = dict(model=os.path.join(tls2trees.__path__[0], 'model', 'mode
                         num_neighbours=5,
                         slice_thickness=0.2,
                         slice_increment=0.05,
-                        subsample=True,
+                        subsample=False,
                         subsampling_min_spacing=0.01,
                         is_wood=1,
                         min_tree_cyls=10, 

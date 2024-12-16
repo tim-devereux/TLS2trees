@@ -1,62 +1,33 @@
 #!/bin/bash
-module load cuda/11.8.0
-source activate tls2trees
 
-
-TEST_DATA="plot_tiles"
+# required for bunya
+# module load cuda/11.8.0
+# source activate tls2trees
 
 # Default values
-INPUT_DIR="/scratch/project/veg3d/uqtdeve1/training_data/test_data/$TEST_DATA"
+INPUT_DIR="/home/tim/Code/TLS2trees/test_data"
 
-# INPUT_DIR="/QRISdata/Q5866/uqtdeve1/Nextcloud/data/plot_recon/tumba"
-# BASE_OUTPUT_PATH="/QRISdata/Q5866/uqtdeve1/Nextcloud/data/plot_recon/tumba"
-
-SYNTH_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_checkpoints/checkpoint_epoch_200.pth"
-SYNTH_OUTPUT_PATH="/scratch/project/veg3d/uqtdeve1/training_data/test_data/$TEST_DATA/synth_results"
-BASE_OUTPUT_PATH="/scratch/project/veg3d/uqtdeve1/training_data/test_data/$TEST_DATA/base_results"
-BASE_MODEL_PATH="/scratch/project/veg3d/uqtdeve1/training_data/models/model_base.pth"
+MODEL_PATH="/home/tim/Code/TLS2trees/tls2trees/fsct/model/model_base.pth"
 BATCH_SIZE=4
-NUM_PROCS=32
-
-# Create output directories if they don't exist
-mkdir -p "$SYNTH_OUTPUT_PATH"
-mkdir -p "$BASE_OUTPUT_PATH"
+NUM_PROCS=8
 
 # Process each .ply file in the input directory
 for point_cloud in "$INPUT_DIR"/*.ply; do
     if [ -f "$point_cloud" ]; then
         # Extract filename without path and extension
-        filename=$(basename "$point_cloud" .ply)
-        
+        filename=$(basename "$point_cloud" .ply)        
         echo "Processing: $filename"
         
-        # Create output subdirectories for this file
-        synth_subdir="$SYNTH_OUTPUT_PATH/$filename"
-        base_subdir="$BASE_OUTPUT_PATH/$filename"
-        mkdir -p "$synth_subdir"
-        mkdir -p "$base_subdir"
-        
-        # Process with synthetic model
-        echo "Running synthetic model..."
+        # Process
+        echo "Running base model..."
         CMD="python3 semantic.py \
-            --point-cloud '$point_cloud' \
+            --point-cloud $point_cloud \
             --batch_size $BATCH_SIZE \
             --num_procs $NUM_PROCS \
-            --model $SYNTH_MODEL_PATH \
-            --odir $synth_subdir \
+            --model $MODEL_PATH \
+            --keep-npy \
             --verbose"
         eval $CMD
-        
-        # Process with base model
-        # echo "Running base model..."
-        # CMD="python3 semantic.py \
-        #     --point-cloud '$point_cloud' \
-        #     --batch_size $BATCH_SIZE \
-        #     --num_procs $NUM_PROCS \
-        #     --model $BASE_MODEL_PATH \
-        #     --odir $base_subdir \
-        #     --verbose"
-        # eval $CMD
         
         echo "Completed processing: $filename"
         echo "----------------------------------------"

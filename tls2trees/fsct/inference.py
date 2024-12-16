@@ -7,16 +7,14 @@ import glob
 import pandas as pd
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
-from scipy import ndimage
 from tqdm.auto import tqdm
 
 from abc import ABC
 import torch
-import torch_geometric
 from torch_geometric.data import Dataset, DataLoader, Data
 from fsct.model import Net
 
-from tls2trees.tools import save_file, make_dtm 
+from tls2trees.tools import save_file
 
 sys.setrecursionlimit(10 ** 8) # Can be necessary for dealing with large point clouds.
 
@@ -39,10 +37,9 @@ class TestingDataset(Dataset, ABC):
         pos = pos - local_shift
         data = Data(pos=pos, x=None, local_shift=local_shift)
         return data
-
+    
 
 def SemanticSegmentation(params):
-
     # if xyz is in global coords (e.g. when re-running) reset
     # coods to mean pos - required for acccurate running of 
     # torch 
@@ -84,7 +81,6 @@ def SemanticSegmentation(params):
                 outputb = np.asarray(output[data.batch.cpu() == batch])
                 outputb[:, :3] = outputb[:, :3] + np.asarray(data.local_shift.cpu())[3 * batch:3 + (3 * batch)]
                 output_list.append(outputb)
-#             break
 
         classified_pc = np.vstack(output_list)
 
@@ -99,36 +95,24 @@ def SemanticSegmentation(params):
                                   radius=0.05).fit(classified_pc[:, :3])
     _, indices = neighbours.kneighbors(params.pc[['x', 'y', 'z']].values)
 
-    params.pc = params.pc.drop(columns=[c for c in params.pc.columns if c in ['label', 'pTerrain', 'pLeaf', 'pWood', 'pCWD']])
+    params.pc = params.pc.drop(columns=[c for c in params.pc.columns if c in ['Classification', 'alpha']])
 
     labels = np.zeros((params.pc.shape[0], 4))
     labels[:, :4] = np.median(classified_pc[indices][:, :, -4:], axis=1)
-    params.pc.loc[params.pc.index, 'label'] = np.argmax(labels[:, :4], axis=1)
+    params.pc.loc[params.pc.index, 'Classification'] = np.argmax(labels[:, :4], axis=1)
     
-    # attribute points as wood if any points have
-    # a wood probability > params.is_wood (Morel et al. 2020)
-    is_wood = np.any(classified_pc[indices][:, :, -1] > params.is_wood, axis=1)
-    params.pc.loc[is_wood, 'label'] = 3
+    # Set wood probability as scalar instead of alpha
+    params.pc.loc[:, 'alpha'] = labels[:, -1]  # wood probability becomes alpha
 
-    probs = pd.DataFrame(index=params.pc.index, data=labels[:, :4], columns=['pTerrain', 'pLeaf', 'pCWD', 'pWood'])
-    params.pc = params.pc.join(probs)
-    #save_file(os.path.join(params.odir, '{}.segmented.concat.{}'.format(params.filename[:-4], params.output_fmt)), 
-    #          pd.concat([params.pc, probs]), 
-    #          additional_fields=['label', 'nz'])
-    #          additional_fields=['label', 'pTerrain', 'pLeaf', 'pWood', 'pCWD']) 
-   
-    #idx = (params.pc.label == 1) & (params.pc.pWood > .12)
-    #params.pc.loc[idx, 'label'] = params.stem_class
- 
     params.pc[['x', 'y', 'z']] += params.global_shift
-
-    # calcualte height abouve ground and add ground normalised field
-    # params = make_dtm(params)
-    # params.pc.loc[params.pc.n_z <= params.ground_height_threshold, 'label'] = params.terrain_class
+    
+    # Filter out 'alpha' from additional_headers
+    filtered_headers = [h for h in params.additional_headers if h != 'alpha']
 
     save_file(os.path.join(params.odir, '{}.segmented.{}'.format(params.filename[:-4], params.output_fmt)), 
               params.pc.loc[~params.pc.buffer], 
-              additional_fields=['n_z', 'label', 'pTerrain', 'pLeaf', 'pCWD', 'pWood'] + params.additional_headers)
+              additional_fields=['Classification', 'alpha'] + filtered_headers)
+              
 
     params.sem_seg_total_time = time.time() - params.sem_seg_start_time
     if not params.keep_npy: [os.unlink(f) for f in test_dataset.filenames]
