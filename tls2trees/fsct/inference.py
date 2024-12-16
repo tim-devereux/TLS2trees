@@ -14,7 +14,7 @@ import torch
 from torch_geometric.data import Dataset, DataLoader, Data
 from fsct.model import Net
 
-from tls2trees.tools import save_file
+from tools import save_file
 
 sys.setrecursionlimit(10 ** 8) # Can be necessary for dealing with large point clouds.
 
@@ -95,24 +95,50 @@ def SemanticSegmentation(params):
                                   radius=0.05).fit(classified_pc[:, :3])
     _, indices = neighbours.kneighbors(params.pc[['x', 'y', 'z']].values)
 
-    params.pc = params.pc.drop(columns=[c for c in params.pc.columns if c in ['Classification', 'alpha']])
+    # params.pc = params.pc.drop(columns=[c for c in params.pc.columns if c in ['Classification', 'alpha']])
+
+    # labels = np.zeros((params.pc.shape[0], 4))
+    # labels[:, :4] = np.median(classified_pc[indices][:, :, -4:], axis=1)
+    # params.pc.loc[params.pc.index, 'Classification'] = np.argmax(labels[:, :4], axis=1)
+    
+    # # Set wood probability as scalar instead of alpha
+    # params.pc.loc[:, 'alpha'] = labels[:, -1]  # wood probability becomes alpha
+
+    # params.pc[['x', 'y', 'z']] += params.global_shift
+    
+    # # Filter out 'alpha' from additional_headers
+    # filtered_headers = [h for h in params.additional_headers if h != 'alpha']
+
+    # save_file(os.path.join(params.odir, '{}.segmented.{}'.format(params.filename[:-4], params.output_fmt)), 
+    #           params.pc.loc[~params.pc.buffer], 
+    #           additional_fields=['alpha'] + filtered_headers)
+              
+
+    # params.sem_seg_total_time = time.time() - params.sem_seg_start_time
+    # if not params.keep_npy: [os.unlink(f) for f in test_dataset.filenames]
+    # print("semantic segmentation done in", params.sem_seg_total_time, 's\n')
+    
+    # return params
+
+    params.pc = params.pc.drop(columns=[c for c in params.pc.columns if c in ['label', 'pTerrain', 'pLeaf', 'pWood', 'pCWD']])
 
     labels = np.zeros((params.pc.shape[0], 4))
     labels[:, :4] = np.median(classified_pc[indices][:, :, -4:], axis=1)
-    params.pc.loc[params.pc.index, 'Classification'] = np.argmax(labels[:, :4], axis=1)
+    params.pc.loc[params.pc.index, 'label'] = np.argmax(labels[:, :4], axis=1)
     
-    # Set wood probability as scalar instead of alpha
-    params.pc.loc[:, 'alpha'] = labels[:, -1]  # wood probability becomes alpha
+    # attribute points as wood if any points have
+    is_wood = np.any(classified_pc[indices][:, :, -1] > params.is_wood, axis=1)
+    params.pc.loc[is_wood, 'label'] = 3
 
+    probs = pd.DataFrame(index=params.pc.index, data=labels[:, :4], columns=['pTerrain', 'pLeaf', 'pCWD', 'pWood'])
+
+    params.pc = params.pc.join(probs)
+ 
     params.pc[['x', 'y', 'z']] += params.global_shift
-    
-    # Filter out 'alpha' from additional_headers
-    filtered_headers = [h for h in params.additional_headers if h != 'alpha']
 
     save_file(os.path.join(params.odir, '{}.segmented.{}'.format(params.filename[:-4], params.output_fmt)), 
               params.pc.loc[~params.pc.buffer], 
-              additional_fields=['Classification', 'alpha'] + filtered_headers)
-              
+              additional_fields=['alpha'] + params.additional_headers)
 
     params.sem_seg_total_time = time.time() - params.sem_seg_start_time
     if not params.keep_npy: [os.unlink(f) for f in test_dataset.filenames]
