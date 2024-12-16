@@ -88,8 +88,6 @@ def read_ply(fp, newline=None):
 
 #     with open(output_name, 'ab') as ply:
 #         ply.write(pc[cols].to_records(index=False).tobytes()) 
-import pandas as pd
-import numpy as np
 
 def write_ply(output_name, pc, comments=None):
     """
@@ -102,7 +100,10 @@ def write_ply(output_name, pc, comments=None):
     """
     if comments is None:
         comments = []
-        
+    
+    # Create a copy to avoid modifying the original DataFrame
+    pc = pc.copy()
+    
     # Define expected columns and their data types
     column_types = {
         'x': ('double', 'float64'),
@@ -117,6 +118,9 @@ def write_ply(output_name, pc, comments=None):
         'blue': ('uchar', 'uint8'),
         'alpha': ('uchar', 'uint8')
     }
+    
+    # If we have duplicate columns, keep the last occurrence (which should be the new alpha)
+    pc = pc.loc[:, ~pc.columns.duplicated(keep='last')]
     
     # Convert columns to appropriate data types
     for col, (_, dtype) in column_types.items():
@@ -134,21 +138,20 @@ def write_ply(output_name, pc, comments=None):
             ply.write(f"comment {comment}\n")
             
         # Write number of vertices
-        ply.write(f"element vertex {len(pc):016d}\n")
+        ply.write(f"element vertex {len(pc)}\n")
         
         # Write properties in specified order
+        cols_to_write = []
         for col, (ply_type, _) in column_types.items():
             if col in pc.columns:
                 ply.write(f"property {ply_type} {col}\n")
+                cols_to_write.append(col)
         
         ply.write("end_header\n")
     
-    # Write binary data
-    cols_to_write = [col for col in column_types.keys() if col in pc.columns]
+    # Write binary data - only use columns we wrote to header
     with open(output_name, 'ab') as ply:
         ply.write(pc[cols_to_write].to_records(index=False).tobytes())
-
-
         
 class dict2class:
 
