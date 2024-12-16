@@ -1,7 +1,6 @@
 from datetime import datetime
 start = datetime.now()
 
-import sys
 import os
 import argparse
 import pickle
@@ -9,7 +8,6 @@ import resource
 
 # from fsct.run_tools import FSCT
 from fsct.other_parameters import other_parameters
-from tools import dict2class
 from fsct.preprocessing import Preprocessing
 from fsct.inference import SemanticSegmentation
 
@@ -20,9 +18,8 @@ if __name__ == '__main__':
     parser.add_argument('--params', type=str, default='', help='path to pickled parameter file')
     parser.add_argument('--odir', type=str, default='.', help='output directory')
 
-    # run or redo steps
-    parser.add_argument('--step', type=int, default=3, help='which process to run to')
-    parser.add_argument('--redo', type=int, default=None, help='which process to run to')
+    # run steps
+    parser.add_argument('--step', type=str, default="all", help='which processess to run. Options: preprocess, segment, all')
 
     # if applying to tiled data
     parser.add_argument('--tile-index', default='', type=str, help='path to tile index in space delimited format "TILE X Y"')
@@ -65,7 +62,6 @@ if __name__ == '__main__':
             # over ride saved parameters
             if k == 'params': continue
             if k == 'step': continue
-            if k == 'redo': continue
             if k == 'batch_size': continue
             setattr(params, k, v)
     else:
@@ -76,15 +72,6 @@ if __name__ == '__main__':
                 setattr(params, k, params.is_wood)
             else:
                 setattr(params, k, v)
-        # i.e. if running for the first time - 
-        # hack to add to params where used for 
-        # recording which steps have been completed
-        params.steps_completed = {0:False, 1:False}
-
-    if params.redo != None:
-        for k in params.steps_completed.keys():
-            if k >= params.redo:
-                params.steps_completed[k] = False
 
     if params.verbose:
         print('\n---- parameters used ----')
@@ -93,15 +80,19 @@ if __name__ == '__main__':
             if k == 'global_shift': v = v.values
             print('{:<35}{}'.format(k, v)) 
 
-    if params.step >= 0 and not params.steps_completed[0]:
+    if params.step == "preprocess":
         params = Preprocessing(params)
-        params.steps_completed[0] = True
         pickle.dump(params, open(os.path.join(params.odir, f'{params.basename}.params.pickle'), 'wb'))
 
-    if params.step >= 1 and not params.steps_completed[1]:
+    if params.step == "segment":
+        params = SemanticSegmentation(params)
+        pickle.dump(params, open(os.path.join(params.odir, f'{params.basename}.params.pickle'), 'wb'))
+        
+    if params.step == "all":
+        params = Preprocessing(params)
+        pickle.dump(params, open(os.path.join(params.odir, f'{params.basename}.params.pickle'), 'wb'))
 
         params = SemanticSegmentation(params)
-        params.steps_completed[1] = True
         pickle.dump(params, open(os.path.join(params.odir, f'{params.basename}.params.pickle'), 'wb'))
     
     if params.verbose: print(f'runtime: {(datetime.now() - start).seconds}')

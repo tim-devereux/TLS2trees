@@ -16,16 +16,21 @@ for point_cloud in "$INPUT_DIR"/*.ply; do
     if [ -f "$point_cloud" ]; then
         # Extract filename without path and extension
         filename=$(basename "$point_cloud" .ply)        
-        echo "Processing: $filename"
+        echo "Processing: $point_cloud"
+
+        mkdir -p $INPUT_DIR/$filename
         
         # Process
         echo "Running base model..."
         CMD="python3 semantic.py \
             --point-cloud $point_cloud \
+            --odir $INPUT_DIR\$filename \
+            --params $INPUT_DIR/$filename.params.pickle \
             --batch_size $BATCH_SIZE \
             --num_procs $NUM_PROCS \
             --model $MODEL_PATH \
             --keep-npy \
+            --step segment \
             --verbose"
         eval $CMD
         
