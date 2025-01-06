@@ -96,31 +96,24 @@ def SemanticSegmentation(params):
         # clean up anything no longer needed to free RAM
         del outputb, out, batches, pos, output
         
-        # choose most confident label
         if params.verbose:
-            print("Choosing most confident labels...")
+            print("Matching points to original cloud...")
             
+        # Find nearest neighbors for each point in the original point cloud
         neighbours = NearestNeighbors(
-            n_neighbors=16,
+            n_neighbors=1,  # Only need closest point
             algorithm='kd_tree',
-            metric='euclidean',
-            radius=0.05
+            metric='euclidean'
         ).fit(classified_pc[:, :3])
         
+        # Get indices of nearest points
         _, indices = neighbours.kneighbors(params.pc[['x', 'y', 'z']].values)
         
-        params.pc = params.pc.drop(columns=[c for c in params.pc.columns if c in ['label', 'pTerrain', 'pLeaf', 'pCWD']])
-        labels = np.zeros((params.pc.shape[0], 4))
-        labels[:, :4] = np.median(classified_pc[indices][:, :, -4:], axis=1)
-        params.pc.loc[params.pc.index, 'label'] = np.argmax(labels[:, :4], axis=1)
+        # Get wood probabilities for matched points (last column, -1)
+        wood_probs = classified_pc[indices[:, 0], -1]
         
-        # Set wood label and probabilities
-        is_wood = np.any(classified_pc[indices][:, :, -1] > params.is_wood, axis=1)
-        params.pc.loc[is_wood, 'label'] = 3
-        
-        # Store wood probability in alpha (converting to 0-255 range for uint8)
-        wood_probs = labels[:, -1]  # Get wood probabilities
-        alpha_values = (wood_probs * 255).astype(np.uint8)  # Scale to 0-255 and convert to uint8
+        # Convert to 0-255 range for uint8
+        alpha_values = (wood_probs * 255).astype(np.uint8)
         
         # Find smallest non-zero value in alpha
         min_nonzero = alpha_values[alpha_values > 0].min() if np.any(alpha_values > 0) else 1
@@ -128,6 +121,7 @@ def SemanticSegmentation(params):
         # Replace zeros with smallest non-zero value
         alpha_values[alpha_values == 0] = min_nonzero
         
+        # Assign alpha values to the point cloud
         params.pc['alpha'] = alpha_values
         
         # shift back to global coords
