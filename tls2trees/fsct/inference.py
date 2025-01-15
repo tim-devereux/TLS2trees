@@ -37,7 +37,7 @@ class TestingDataset(Dataset, ABC):
         pos = pos - local_shift
         data = Data(pos=pos, x=None, local_shift=local_shift)
         return data
-    
+
 def SemanticSegmentation(params):
     # if xyz is in global coords (e.g. when re-running) reset
     # coords to mean pos - required for accurate running of torch
@@ -46,37 +46,36 @@ def SemanticSegmentation(params):
 
     if params.verbose:
         print('----- semantic segmentation started -----')
-    
+
     params.sem_seg_start_time = time.time()
-    
+
     # check status of GPU
     params.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if params.verbose:
         print('using:', params.device)
-    
+
     # generates pytorch dataset iterable
     test_dataset = TestingDataset(
         root_dir=params.working_dir,
         points_per_box=params.max_points_per_box,
         device=params.device
     )
-    
+
     test_loader = DataLoader(
         test_dataset, 
         batch_size=params.batch_size, 
         shuffle=False,
         num_workers=0
     )
-    
+
     # initialize model
     model = Net(num_classes=4).to(params.device)
     model.load_state_dict(torch.load(params.model, map_location=params.device), strict=False)
     model.eval()
-    
+
     with torch.no_grad():
-        output_point_cloud = np.zeros((0, 3 + 4))
         output_list = []
-        
+
         for data in tqdm(test_loader, disable=False if params.verbose else True):
             data = data.to(params.device)
             out = model(data)
@@ -85,58 +84,108 @@ def SemanticSegmentation(params):
             out = torch.softmax(out.cpu().detach(), axis=1)
             pos = data.pos.cpu()
             output = np.hstack((pos, out))
-            
+
             for batch in batches:
                 outputb = np.asarray(output[data.batch.cpu() == batch])
-                outputb[:, :3] = outputb[:, :3] + np.asarray(data.local_shift.cpu())[3 * batch:3 + (3 * batch)]
+                # Shift positions back
+                shift_vals = np.asarray(data.local_shift.cpu())[3*batch : 3 + (3*batch)]
+                outputb[:, :3] = outputb[:, :3] + shift_vals
                 output_list.append(outputb)
-        
+
         classified_pc = np.vstack(output_list)
+
+    # clean up anything no longer needed to free RAM
+    del outputb, out, batches, pos, output
+
+    # choose most confident label
+    if params.verbose:
+        print("Choosing most confident labels...")
+
+    # Fit neighbors once on the classified points.
+    neighbours = NearestNeighbors(
+        n_neighbors=16, 
+        algorithm='kd_tree', 
+        metric='euclidean', 
+        radius=0.05
+    ).fit(classified_pc[:, :3])
+
+    # Remove old label columns if they exist
+    params.pc = params.pc.drop(columns=[c for c in params.pc.columns if c in ['label', 'pWood']], errors='ignore')
+
+    # Prepare an array to store label probabilities (or medians)
+    num_points = params.pc.shape[0]
+    labels = np.zeros((num_points, 4), dtype=np.float32)
+
+    # Define a chunk size that fits comfortably into RAM.
+    chunk_size = 100000
+
+    # Query neighbors in small batches:
+    for start_idx in range(0, num_points, chunk_size):
+        end_idx = min(start_idx + chunk_size, num_points)
         
-        # clean up anything no longer needed to free RAM
-        del outputb, out, batches, pos, output
+        chunk_xyz = params.pc.iloc[start_idx:end_idx][['x', 'y', 'z']].values
         
-        if params.verbose:
-            print("Matching points to original cloud...")
-            
-        # Find nearest neighbors for each point in the original point cloud
-        neighbours = NearestNeighbors(
-            n_neighbors=1,  # Only need closest point
-            algorithm='kd_tree',
-            metric='euclidean'
-        ).fit(classified_pc[:, :3])
+        _, chunk_indices = neighbours.kneighbors(chunk_xyz)
         
-        # Get indices of nearest points
-        _, indices = neighbours.kneighbors(params.pc[['x', 'y', 'z']].values)
+        # classified_pc has shape [N_classified, >=3+4]
+        # columns = X, Y, Z, and last 4 columns are class probabilities
+        chunk_probs = classified_pc[chunk_indices][:, :, -4:]
         
-        # Get wood probabilities for matched points (last column, -1)
-        wood_probs = classified_pc[indices[:, 0], -1]
+        # Compute the median probability across k neighbors
+        chunk_medians = np.median(chunk_probs, axis=1)
         
-        # Convert to 0-255 range for uint8
-        alpha_values = (wood_probs * 255).astype(np.uint8)
-        
-        # Find smallest non-zero value in alpha
-        min_nonzero = alpha_values[alpha_values > 0].min() if np.any(alpha_values > 0) else 1
-        
-        # Replace zeros with smallest non-zero value
-        alpha_values[alpha_values == 0] = min_nonzero
-        
-        # Assign alpha values to the point cloud
-        params.pc['alpha'] = alpha_values
-        
-        # shift back to global coords
-        params.pc[['x', 'y', 'z']] += params.global_shift
-        
-        save_file(
-            os.path.join(params.odir, '{}.segmented.{}'.format(params.filename[:-4], params.output_fmt)),
-            params.pc.loc[~params.pc.buffer],
-            additional_fields=['alpha'] + params.additional_headers
-        )
-        
-        params.sem_seg_total_time = time.time() - params.sem_seg_start_time
-        if not params.keep_npy:
-            [os.unlink(f) for f in test_dataset.filenames]
-            
-        print("semantic segmentation done in", params.sem_seg_total_time, 's\n')
-        
+        # Store medians in our labels array
+        labels[start_idx:end_idx] = chunk_medians
+
+    print("labels chosen")
+
+    # Choose label = argmax across the 4 columns
+    params.pc['label'] = np.argmax(labels, axis=1)
+
+    # pWood is the last column (index 3) in the 4 columns
+    params.pc['pWood'] = labels[:, -1]
+
+    print("applying global shift")
+
+    # Shift back to global coords if needed
+    params.pc[['x', 'y', 'z']] += params.global_shift
+
+    # Now set alpha = pWood
+    params.pc['alpha'] = params.pc['pWood']
+
+    # ---------------------------------------------------------------------
+    # Save two files:
+    #   1) One with alpha == pWood
+    #   2) One with labels and pWood
+    # ---------------------------------------------------------------------
+    
+    # 1) File with alpha == pWood
+    df_alpha = params.pc.loc[~params.pc.buffer].copy()
+    # Remove duplicate columns if they exist
+    df_alpha = df_alpha.loc[:, ~df_alpha.columns.duplicated()]
+    
+    save_file(
+        os.path.join(params.odir, '{}.segmented_alpha.{}'.format(params.filename[:-4], params.output_fmt)),
+        df_alpha,
+        additional_fields=['alpha'] + params.additional_headers
+    )
+
+    # 2) File with labels and pWood
+    df_labels = params.pc.loc[~params.pc.buffer].copy()
+    # Remove duplicate columns if they exist
+    df_labels = df_labels.loc[:, ~df_labels.columns.duplicated()]
+    
+    save_file(
+        os.path.join(params.odir, '{}.segmented_labels.{}'.format(params.filename[:-4], params.output_fmt)),
+        df_labels,
+        additional_fields=['label',] + params.additional_headers
+    )
+    # ---------------------------------------------------------------------
+
+    params.sem_seg_total_time = time.time() - params.sem_seg_start_time
+    if not params.keep_npy:
+        [os.unlink(f) for f in test_dataset.filenames]
+
+    print("semantic segmentation done in", params.sem_seg_total_time, 's\n')
+
     return params

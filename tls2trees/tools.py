@@ -13,19 +13,18 @@ from tqdm import tqdm
 import sys
 
 
-def read_ply(fp, newline=None):
 
+def read_ply(fp, newline=None):
     if (sys.version_info > (3, 0)):
         open_file = open(fp, encoding='ISO-8859-1', newline='\n' if sys.platform == 'win32' else None)
     else:
         open_file = open(fp)
 
     with open_file as ply:
- 
         length = 0
         prop = []
-        dtype_map = {'uint16':'uint16', 'uint8':'uint8', 'double':'d', 'float64':'f8', 
-                     'float32':'f4', 'float': 'f4', 'uchar': 'B', 'int':'i'}
+        dtype_map = {'uint16': 'uint16', 'uint8': 'uint8', 'double': 'd', 'float32': 'f8', 
+                     'float32': 'f4', 'float': 'f4', 'uchar': 'B', 'int': 'i'}
         dtype = []
         fmt = 'binary'
     
@@ -33,14 +32,16 @@ def read_ply(fp, newline=None):
             length += len(line)
             if i == 1:
                 if 'ascii' in line:
-                    fmt = 'ascii' 
-            if 'element vertex' in line: N = int(line.split()[2])
-            if 'property' in line: 
+                    fmt = 'ascii'
+            if 'element vertex' in line:
+                N = int(line.split()[2])
+            if 'property' in line:
                 dtype.append(dtype_map[line.split()[1]])
                 prop.append(line.split()[2])
             if 'element face' in line:
                 raise Exception('.ply appears to be a mesh')
-            if 'end_header' in line: break
+            if 'end_header' in line:
+                break
     
         ply.seek(length)
 
@@ -48,110 +49,133 @@ def read_ply(fp, newline=None):
             arr = np.fromfile(ply, dtype=','.join(dtype))
         else:
             arr = np.loadtxt(ply)
+        
         df = pd.DataFrame(data=arr)
         df.columns = prop
 
+        # Convert only x, y, z columns to float32
+        for col in ['x', 'y', 'z']:
+            if col in df.columns:
+                df[col] = df[col].astype('float32')
+
     return df
 
-# def write_ply(output_name, pc, comments=[]):
+def write_ply(output_name, pc, comments=[]):
 
-#     cols = ['x', 'y', 'z']
-#     pc[['x', 'y', 'z']] = pc[['x', 'y', 'z']].astype('f8')
+    # -- 1) Drop duplicate columns from the DataFrame --
+    pc = pc.loc[:, ~pc.columns.duplicated()].copy()
 
-#     with open(output_name, 'w') as ply:
+    # Force these columns to be float64 for consistency
+    cols = ['x', 'y', 'z']
+    pc[['x', 'y', 'z']] = pc[['x', 'y', 'z']].astype('f8')
 
-#         ply.write("ply\n")
-#         ply.write('format binary_little_endian 1.0\n')
-#         ply.write("comment Author: Phil Wilkes\n")
-#         for comment in comments:
-#             ply.write("comment {}\n".format(comment))
-#         ply.write("obj_info generated with pcd2ply.py\n")
-#         ply.write("element vertex {}\n".format(len(pc)))
-#         ply.write("property float64 x\n")
-#         ply.write("property float64 y\n")
-#         ply.write("property float64 z\n")
-#         if 'red' in pc.columns:
-#             cols += ['red', 'green', 'blue']
-#             pc[['red', 'green', 'blue']] = pc[['red', 'green', 'blue']].astype('i')
-#             ply.write("property int red\n")
-#             ply.write("property int green\n")
-#             ply.write("property int blue\n")
-#         for col in pc.columns:
-#             if col in cols: continue
-#             try:
-#                 pc[col] = pc[col].astype('f8')
-#                 ply.write("property float64 {}\n".format(col))
-#                 cols += [col]
-#             except:
-#                 pass
-#         ply.write("end_header\n")
-
-#     with open(output_name, 'ab') as ply:
-#         ply.write(pc[cols].to_records(index=False).tobytes()) 
-
-def write_ply(output_name, pc, comments=None):
-    """
-    Write point cloud data to PLY file with specific format and data types.
-    
-    Args:
-        output_name (str): Output file path
-        pc (pd.DataFrame): Point cloud data
-        comments (list): Optional list of comments to include in header
-    """
-    if comments is None:
-        comments = []
-    
-    # Create a copy to avoid modifying the original DataFrame
-    pc = pc.copy()
-    
-    # Define expected columns and their data types
-    column_types = {
-        'x': ('double', 'float64'),
-        'y': ('double', 'float64'),
-        'z': ('double', 'float64'),
-        'time': ('double', 'float64'),
-        'nx': ('float', 'float32'),
-        'ny': ('float', 'float32'),
-        'nz': ('float', 'float32'),
-        'red': ('uchar', 'uint8'),
-        'green': ('uchar', 'uint8'),
-        'blue': ('uchar', 'uint8'),
-        'alpha': ('uchar', 'uint8')
-    }
-    
-    # If we have duplicate columns, keep the last occurrence (which should be the new alpha)
-    pc = pc.loc[:, ~pc.columns.duplicated(keep='last')]
-    
-    # Convert columns to appropriate data types
-    for col, (_, dtype) in column_types.items():
-        if col in pc.columns:
-            pc[col] = pc[col].astype(dtype)
-    
-    # Write header
     with open(output_name, 'w') as ply:
+
         ply.write("ply\n")
-        ply.write("format binary_little_endian 1.0\n")
-        ply.write("comment generated by raycloudtools library\n")
-        
-        # Add any additional comments
+        ply.write('format binary_little_endian 1.0\n')
+        ply.write("comment Author: Phil Wilkes\n")
         for comment in comments:
             ply.write(f"comment {comment}\n")
-            
-        # Write number of vertices
+        ply.write("obj_info generated with pcd2ply.py\n")
         ply.write(f"element vertex {len(pc)}\n")
-        
-        # Write properties in specified order
-        cols_to_write = []
-        for col, (ply_type, _) in column_types.items():
-            if col in pc.columns:
-                ply.write(f"property {ply_type} {col}\n")
-                cols_to_write.append(col)
-        
+        ply.write("property float64 x\n")
+        ply.write("property float64 y\n")
+        ply.write("property float64 z\n")
+
+        # If 'red' is in pc columns, assume 'green','blue' are also present
+        if 'red' in pc.columns:
+            cols += ['red', 'green', 'blue']
+            pc[['red', 'green', 'blue']] = pc[['red', 'green', 'blue']].astype('i')
+            ply.write("property int red\n")
+            ply.write("property int green\n")
+            ply.write("property int blue\n")
+
+        # -- 2) Dynamically detect additional columns --
+        for col in pc.columns:
+            # Skip if already in the 'cols' list:
+            if col in cols:
+                continue
+
+            # Attempt casting to float64 (skip if it fails)
+            try:
+                pc[col] = pc[col].astype('f8')
+                ply.write(f"property float64 {col}\n")
+                cols.append(col)
+            except:
+                pass
+
         ply.write("end_header\n")
-    
-    # Write binary data - only use columns we wrote to header
+
     with open(output_name, 'ab') as ply:
-        ply.write(pc[cols_to_write].to_records(index=False).tobytes())
+        # pc[cols] must have unique column names
+        arr = pc[cols].to_records(index=False)
+        ply.write(arr.tobytes())
+
+        
+# def write_ply(output_name, pc, comments=None):
+#     """
+#     Write point cloud data to PLY file with specific format and data types.
+    
+#     Args:
+#         output_name (str): Output file path
+#         pc (pd.DataFrame): Point cloud data
+#         comments (list): Optional list of comments to include in header
+#     """
+#     if comments is None:
+#         comments = []
+    
+#     # Create a copy to avoid modifying the original DataFrame
+#     pc = pc.copy()
+    
+#     # Define expected columns and their data types
+#     column_types = {
+#         'x': ('double', 'float32'),
+#         'y': ('double', 'float32'),
+#         'z': ('double', 'float32'),
+#         'time': ('double', 'float32'),
+#         'nx': ('float', 'float32'),
+#         'ny': ('float', 'float32'),
+#         'nz': ('float', 'float32'),
+#         'red': ('uchar', 'uint8'),
+#         'green': ('uchar', 'uint8'),
+#         'blue': ('uchar', 'uint8'),
+#         'alpha': ('uchar', 'uint8'),
+#         'label':  ('uchar', 'uint8'),
+#     }
+    
+#     # If we have duplicate columns, keep the last occurrence (which should be the new alpha)
+#     pc = pc.loc[:, ~pc.columns.duplicated(keep='last')]
+    
+#     # Convert columns to appropriate data types
+#     for col, (_, dtype) in column_types.items():
+#         if col in pc.columns:
+#             pc[col] = pc[col].astype(dtype)
+    
+#     # Write header
+#     with open(output_name, 'w') as ply:
+#         ply.write("ply\n")
+#         ply.write("format binary_little_endian 1.0\n")
+#         ply.write("comment generated by raycloudtools library\n")
+        
+#         # Add any additional comments
+#         for comment in comments:
+#             ply.write(f"comment {comment}\n")
+            
+#         # Write number of vertices
+#         ply.write(f"element vertex {len(pc)}\n")
+        
+#         # Write properties in specified order
+#         cols_to_write = []
+#         for col, (ply_type, _) in column_types.items():
+#             if col in pc.columns:
+#                 ply.write(f"property {ply_type} {col}\n")
+#                 cols_to_write.append(col)
+        
+#         ply.write("end_header\n")
+    
+#     # Write binary data - only use columns we wrote to header
+#     with open(output_name, 'ab') as ply:
+#         ply.write(pc[cols_to_write].to_records(index=False).tobytes())
         
 class dict2class:
 
